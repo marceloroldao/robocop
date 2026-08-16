@@ -18,6 +18,12 @@ RoboCOP investigates a controller stack built from:
 
 The core experimental question is whether expensive local field evaluation can be progressively replaced by structured memory while preserving stability and control quality.
 
+## FC Portugal competitive baseline
+
+RoboCOP now includes a license-neutral bridge protocol for experiments against the public FC Portugal RoboCup 3D codebase. FC Portugal remains an external GPL-3.0 dependency and is not copied into the RoboCOP core. The first integration target is the upstream Walk/Step locomotion stack: preserve its trained walking policy as the baseline and evaluate resolutive transition memory/reflexes only as measured overlays.
+
+See `docs/fcportugal_integration_audit.md` and `scripts/fetch_fcportugal_external.sh`.
+
 ## Current experimental milestones
 
 Early MuJoCo experiments have compared PD, full field evaluation, hierarchical approximations, and persistent descriptive memory. Results must be treated as experimental benchmarks rather than claims of new physical laws or real-robot performance.
@@ -46,6 +52,8 @@ This repository uses a dual-purpose research/commercial licensing model:
 - commercial use, commercial deployment, paid products/services, or proprietary integration requires a separate commercial license; see `COMMERCIAL_LICENSE.md`.
 
 This licensing model is **source-available and is not intended to be an OSI-approved open-source license**.
+
+External dependencies retain their own licenses. In particular, the FC Portugal codebase is GPL-3.0 and is intentionally kept outside the RoboCOP core.
 
 ## Status
 
