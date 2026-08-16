@@ -41,7 +41,6 @@ def extract_humanoid_state(env, q_target: Optional[np.ndarray] = None) -> Humano
         vertical=quaternion_vertical(qpos[3:7]),
         omega=float(np.linalg.norm(qvel[3:6])),
         vel_z=float(qvel[2]),
-        speed=float(np.linalg.norm(qvel[:6])),
     )
     return HumanoidObservation(q=q, qd=qd, q_target=np.asarray(q_target, dtype=float), field_state=state)
 
