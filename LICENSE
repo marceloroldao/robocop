@@ -1,0 +1,72 @@
+RoboCOP Research and Academic License v1.0
+
+Copyright (c) 2026 Marcelo Roldão Matos
+All rights reserved except as expressly granted below.
+
+1. PURPOSE
+
+This license permits use of the RoboCOP software, source code, documentation, models, algorithms, experimental assets, and related materials (the "Software") for academic, educational, personal study, and non-commercial research purposes, subject to the conditions below.
+
+2. PERMITTED USES
+
+You may, for non-commercial purposes:
+
+(a) use, run, study, and evaluate the Software;
+(b) modify the Software for research or educational work;
+(c) reproduce reasonable portions of the Software for teaching, experimentation, and scholarly collaboration;
+(d) publish research results derived from use of the Software; and
+(e) redistribute modified or unmodified copies to collaborators engaged solely in permitted non-commercial activity, provided that this license and all copyright notices remain intact.
+
+3. ATTRIBUTION
+
+Publications, presentations, repositories, datasets, demonstrations, or derivative research that materially use the Software must provide reasonable attribution to RoboCOP and its author, Marcelo Roldão Matos, and should identify the repository when practical.
+
+4. COMMERCIAL USE REQUIRES A SEPARATE LICENSE
+
+No license is granted under this document for commercial use. Commercial use includes, without limitation:
+
+(a) incorporation into a product or service offered for payment or other commercial advantage;
+(b) deployment in a commercial, industrial, production, or revenue-generating environment;
+(c) use to provide paid consulting, hosted services, robotics services, or proprietary control systems;
+(d) licensing, sublicensing, selling, renting, or otherwise monetizing the Software or a derivative work; or
+(e) internal use by a for-profit organization where the Software contributes materially to a commercial product, service, operational capability, or competitive advantage.
+
+Commercial rights require a separate written license from the copyright holder. See COMMERCIAL_LICENSE.md.
+
+5. NO TRADEMARK LICENSE
+
+This license does not grant permission to use the names "RoboCOP", "Resolutive", the author's name, logos, or other marks as trademarks or to imply endorsement.
+
+6. RESEARCH RESULTS AND INDEPENDENT WORK
+
+This license does not restrict ownership of independently created research results, papers, measurements, or datasets that do not contain or distribute the Software itself. Distribution of modified Software remains subject to this license unless separately licensed.
+
+7. PATENTS
+
+No patent license is granted except to the minimum extent, if any, required by applicable law to exercise the permissions expressly granted in this license. Any separate patent rights are reserved.
+
+8. SAFETY AND EXPERIMENTAL STATUS
+
+The Software is experimental research software. It has not been validated for safety-critical, medical, industrial, autonomous-vehicle, or real-world robotic deployment. Users are responsible for appropriate testing, supervision, risk assessment, and compliance with applicable rules and laws.
+
+9. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, ACCURACY, RELIABILITY, OR FITNESS FOR SAFETY-CRITICAL USE.
+
+10. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+11. TERMINATION
+
+Your rights under this license terminate automatically if you materially breach its terms. Upon termination, you must cease exercising the permissions granted by this license, except for rights that cannot lawfully be terminated.
+
+12. NO IMPLIED RIGHTS
+
+All rights not expressly granted are reserved by the copyright holder.
+
+13. COMMERCIAL LICENSING CONTACT
+
+Commercial licensing may be requested through the repository owner or another contact channel designated by Marcelo Roldão Matos.
+
+This is a custom source-available research license and is not represented as an OSI-approved open-source license.
