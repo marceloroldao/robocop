@@ -10,6 +10,7 @@ from robocop.controllers import PDController, FieldModulatedController
 from robocop.field import ResolutiveField
 from robocop.memory import DescriptiveMemory
 from robocop.trajectory_memory import TrajectoryMemory
+from robocop.outcome_credit import OutcomeCredit
 from robocop.mujoco_env import make_humanoid_env, extract_humanoid_state
 from robocop.mujoco_field import finite_difference_gradient
 
@@ -51,6 +52,9 @@ class BaseAgent:
     def act(self, env):
         obs = extract_humanoid_state(env, self.q_target)
         return self.pd.action(obs.q, obs.qd, self.q_target)
+
+    def observe(self, reward: float, terminated: bool, truncated: bool) -> None:
+        return None
 
 
 class FullFieldAgent(BaseAgent):
@@ -150,7 +154,7 @@ class MemoryV5Agent(BaseAgent):
 
 
 class TrajectoryV6Agent(BaseAgent):
-    name = "TRAJETORIAS V6"
+    name = "TRAJETORIAS V6.1"
 
     def __init__(self, memory: TrajectoryMemory, learn: bool):
         super().__init__()
@@ -158,6 +162,11 @@ class TrajectoryV6Agent(BaseAgent):
         self.mod = FieldModulatedController(self.pd, field_gain=0.20)
         self.memory = memory
         self.learn_enabled = learn
+        self.credit = OutcomeCredit()
+
+    def reset(self, env):
+        super().reset(env)
+        self.credit.reset()
 
     def act(self, env):
         obs = extract_humanoid_state(env, self.q_target)
@@ -167,11 +176,6 @@ class TrajectoryV6Agent(BaseAgent):
         if grad is None:
             grad, sims = finite_difference_gradient(env, self.field, base)
             self.sims += sims
-            if self.learn_enabled and not self.memory.frozen:
-                energy = float(np.mean(base ** 2))
-                reward_proxy = self.field.score(obs.field_state)
-                survival_proxy = float(np.clip(reward_proxy / 3.5, 0.0, 1.0))
-                self.memory.learn(obs.field_state, grad, energy, reward_proxy, survival_proxy)
             confidence = 1.0
         else:
             self.hits += 1
@@ -179,7 +183,25 @@ class TrajectoryV6Agent(BaseAgent):
             confidence = float(np.clip(prototype.confidence, 0.0, 1.0))
             energy_factor = float(np.clip(0.010 / max(prototype.mean_energy, 1e-6), 0.35, 1.0))
             confidence *= energy_factor
-        return self.mod.action(obs.q, obs.qd, self.q_target, grad, confidence)
+
+        action = self.mod.action(obs.q, obs.qd, self.q_target, grad, confidence)
+        if self.learn_enabled and not self.memory.frozen:
+            self.credit.arm(obs.field_state, grad, action)
+        return action
+
+    def observe(self, reward: float, terminated: bool, truncated: bool) -> None:
+        if not self.learn_enabled or self.memory.frozen:
+            return
+        outcome = self.credit.resolve(reward, terminated, truncated)
+        if outcome is None:
+            return
+        self.memory.learn(
+            outcome.state,
+            outcome.gradient,
+            outcome.energy,
+            outcome.reward,
+            outcome.survival,
+        )
 
 
 def run_episode(agent, seed: int, max_steps: int):
@@ -196,6 +218,7 @@ def run_episode(agent, seed: int, max_steps: int):
             torque_total += float(np.mean(np.abs(action)))
             energy_total += float(np.mean(action ** 2))
             _, reward, terminated, truncated, _ = env.step(action)
+            agent.observe(float(reward), bool(terminated), bool(truncated))
             reward_total += float(reward)
             steps += 1
             if terminated or truncated:
@@ -263,9 +286,9 @@ def main():
     memory_v5.freeze()
     print("Memoria V5:", memory_v5.stats())
 
-    train_memory(lambda: TrajectoryV6Agent(memory_v6, True), train_range, args.max_steps, "V6")
+    train_memory(lambda: TrajectoryV6Agent(memory_v6, True), train_range, args.max_steps, "V6.1")
     memory_v6.freeze()
-    print("Memoria V6:", memory_v6.stats())
+    print("Memoria V6.1:", memory_v6.stats())
 
     results = []
     for seed in range(1000, 1000 + args.seeds):
@@ -280,7 +303,7 @@ def main():
             r = run_episode(agent, seed, args.max_steps)
             results.append(r)
             print(
-                f"{r.controller:16s} seed={seed} passos={r.steps} E={r.energy:.6f} "
+                f"{r.controller:18s} seed={seed} passos={r.steps} E={r.energy:.6f} "
                 f"CPU={r.cpu_ms:.3f} sims={r.sims_per_step:.2f} hit={r.hit_rate:.2f} "
                 f"Z1={r.hit_z1:.2f} Z2={r.hit_z2:.2f} Z3={r.hit_z3:.2f}"
             )

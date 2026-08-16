@@ -44,13 +44,17 @@ class TrajectoryPrototype:
         self.visits += 1
         self.confidence = float(np.clip(self.confidence + 0.06, 0.0, 1.0))
 
-    def quality(self, energy_scale: float = 0.01) -> float:
-        energy_penalty = self.mean_energy / max(energy_scale, 1e-9)
-        return (
-            0.45 * self.mean_survival
-            + 0.35 * self.mean_reward
-            - 0.20 * energy_penalty
-        )
+    def quality(self, energy_scale: float = 0.01, reward_scale: float = 5.0) -> float:
+        """Comparable quality score for realized outcomes.
+
+        Survival and reward are mapped to bounded [0, 1]-like terms while energy
+        remains an explicit penalty. This prevents raw reward units from drowning
+        the energetic objective.
+        """
+        survival_term = float(np.clip(self.mean_survival, 0.0, 1.0))
+        reward_term = float(np.tanh(max(self.mean_reward, 0.0) / max(reward_scale, 1e-9)))
+        energy_penalty = float(np.clip(self.mean_energy / max(energy_scale, 1e-9), 0.0, 3.0))
+        return 0.45 * survival_term + 0.35 * reward_term - 0.20 * energy_penalty
 
 
 @dataclass
