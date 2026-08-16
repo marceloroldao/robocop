@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+title: RoboCOP
+message: "If you use RoboCOP in academic work, please cite this repository and the author."
+type: software
+authors:
+  - family-names: Matos
+    given-names: Marcelo Roldão
+    orcid: "https://orcid.org/0009-0003-6075-4680"
+year: 2026
+repository-code: "https://github.com/marceloroldao/robocop"
+license: other
