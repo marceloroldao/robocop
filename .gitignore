@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Local environments
+.env
+.env.*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Generated experiment outputs
+results/*.csv
+results/*.json
+results/*.npz
+results/*.gif
+results/*.mp4
+results/*.png
+results/*.log
+
+# Keep documented placeholders
+!results/.gitkeep
