@@ -1,0 +1,12 @@
+services:
+  fcp-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.fcp
+    network_mode: host
+    environment:
+      FCP_DIR: /opt/FCPCodebase
+      TRACE_OUT: /workspace/results/fcp_walk_trace.jsonl
+    volumes:
+      - ./results:/workspace/results
+    restart: "no"

@@ -1,0 +1,32 @@
+FROM python:3.12-slim
+
+ARG FCP_REPO=https://github.com/m-abr/FCPCodebase.git
+ARG FCP_COMMIT=22d9e2ff9f12a271ff882868c39cc672e56cc625
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    FCP_DIR=/opt/FCPCodebase \
+    TRACE_OUT=/workspace/results/fcp_walk_trace.jsonl
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    build-essential \
+    cmake \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY requirements.txt /tmp/robocop-requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install -r /tmp/robocop-requirements.txt
+
+RUN git clone "$FCP_REPO" "$FCP_DIR" \
+    && cd "$FCP_DIR" \
+    && git checkout "$FCP_COMMIT"
+
+COPY . /workspace
+RUN mkdir -p /workspace/results
+
+CMD ["bash", "scripts/run_fcportugal_trace.sh"]
