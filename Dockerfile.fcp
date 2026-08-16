@@ -20,6 +20,7 @@ WORKDIR /workspace
 
 COPY requirements.txt /tmp/robocop-requirements.txt
 RUN python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install pybind11 \
     && python -m pip install -r /tmp/robocop-requirements.txt
 
 RUN git clone "$FCP_REPO" "$FCP_DIR" \
