@@ -1,0 +1,11 @@
+RoboCOP
+Copyright (c) 2026 Marcelo Roldão Matos
+
+RoboCOP is experimental robotics-control research software.
+
+Academic, educational, personal-study, and non-commercial research use is governed by the LICENSE file.
+Commercial use requires separate written permission as described in COMMERCIAL_LICENSE.md.
+
+The project may include third-party dependencies distributed under their own licenses. Those licenses remain applicable to the respective third-party components.
+
+No affiliation with or endorsement by RoboCup, its organizers, leagues, sponsors, or participating teams is implied by the RoboCOP project name or research roadmap.
