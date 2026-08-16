@@ -1,4 +1,9 @@
 services:
+  rcssserver3d:
+    image: rcss3d/rcssserver3d:latest
+    network_mode: host
+    restart: "no"
+
   fcp-agent:
     build:
       context: .
@@ -7,6 +12,11 @@ services:
     environment:
       FCP_DIR: /opt/FCPCodebase
       TRACE_OUT: /workspace/results/fcp_walk_trace.jsonl
+      SIMSPARK_HOST: 127.0.0.1
+      SIMSPARK_PORT: "3100"
     volumes:
       - ./results:/workspace/results
+    depends_on:
+      - rcssserver3d
+    command: ["bash", "scripts/wait_for_simspark_and_trace.sh"]
     restart: "no"
