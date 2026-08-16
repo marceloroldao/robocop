@@ -17,16 +17,17 @@ fi
 mkdir -p results
 
 echo "========================================"
-echo "RoboCOP + FC Portugal (Docker)"
+echo "RoboCOP + FC Portugal + SimSpark"
 echo "========================================"
-echo "Building isolated runtime..."
+echo "Pulling RoboCup 3D server image..."
+docker compose pull rcssserver3d
+
+echo "Building isolated FC Portugal runtime..."
 docker compose build fcp-agent
 
 echo
-
-echo "Starting FC Portugal agent with RoboCOP tracing."
-echo "A SimSpark/rcssserver3d server must be reachable on the host network."
+echo "Starting complete stack."
 echo "Trace: results/fcp_walk_trace.jsonl"
 echo
 
-docker compose run --rm fcp-agent "$@"
+docker compose up --remove-orphans
