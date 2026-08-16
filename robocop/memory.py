@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
-import math
+from typing import Dict, Tuple
 
 import numpy as np
 
@@ -26,7 +25,8 @@ class MemoryNode:
     gradient: np.ndarray
     visits: int = 1
     confidence: float = 0.35
-    dispersion: float = 1.0
+    # A single observation has no observed angular disagreement yet.
+    dispersion: float = 0.0
     mean_energy: float = 0.0
     mean_reward: float = 0.0
 
@@ -91,10 +91,11 @@ class DescriptiveMemory:
                 node.update(gradient, float(energy), float(reward))
 
     def lookup(self, s: FieldState):
+        z1, z2, z3 = self.keys(s)
         policies = (
-            (self.z1, self.keys(s)[0], 5, 0.75, 0.18, 1),
-            (self.z2, self.keys(s)[1], 4, 0.70, 0.25, 2),
-            (self.z3, self.keys(s)[2], 3, 0.60, 0.35, 3),
+            (self.z1, z1, 5, 0.75, 0.18, 1),
+            (self.z2, z2, 4, 0.70, 0.25, 2),
+            (self.z3, z3, 3, 0.60, 0.35, 3),
         )
         for table, key, min_visits, min_conf, max_disp, level in policies:
             node = table.get(key)
