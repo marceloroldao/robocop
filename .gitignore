@@ -16,6 +16,9 @@ env/
 .env
 .env.*
 
+# External GPL dependencies kept outside the RoboCOP core
+.external/
+
 # OS/editor
 .DS_Store
 Thumbs.db
