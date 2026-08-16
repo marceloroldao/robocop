@@ -1,0 +1,4 @@
+gymnasium[mujoco]
+mujoco
+numpy
+pandas
