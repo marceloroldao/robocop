@@ -38,7 +38,6 @@ class BahiaRTPassiveBridge:
         self.recall_confidence = float(recall_confidence)
         self._pending_state: Optional[BalanceState] = None
         self._pending_action: Optional[np.ndarray] = None
-        self._previous_state: Optional[BalanceState] = None
         self._last_time: Optional[float] = None
         self._last_height: Optional[float] = None
         self._current_state: Optional[BalanceState] = None
@@ -120,7 +119,7 @@ class BahiaRTPassiveBridge:
 
         self._current_recall = self.memory.recall(
             current,
-            recent_state=self._previous_state,
+            recent_state=self._pending_state,
             min_confidence=self.recall_confidence,
         )
         if self._current_recall is not None:
@@ -133,7 +132,6 @@ class BahiaRTPassiveBridge:
         if self._current_state is None:
             raise RuntimeError("before_decision(agent) must be called first")
         selected = self.action_vector(agent)
-        self._previous_state = self._pending_state
         self._pending_state = self._current_state
         self._pending_action = selected.copy()
         return selected.copy()
