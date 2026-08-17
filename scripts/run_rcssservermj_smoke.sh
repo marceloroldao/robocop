@@ -13,8 +13,17 @@ cleanup() {
 
 show_logs() {
   echo
-  echo "================ SERVER LOG ================"
-  docker logs --tail 120 "$CONTAINER" 2>&1 || true
+  echo "================ DOCKER LOG ================"
+  docker logs --tail 160 "$CONTAINER" 2>&1 || true
+  echo "============= INTERNAL DEBUG LOG ==========="
+  docker exec "$CONTAINER" sh -lc '
+    for f in /console.log /opt/rcssservermj/console.log /workspace/console.log; do
+      if [ -f "$f" ]; then
+        echo "--- $f ---"
+        tail -n 240 "$f"
+      fi
+    done
+  ' 2>&1 || true
   echo "============================================"
 }
 
@@ -25,16 +34,36 @@ echo "========================================"
 echo "RoboCOP — RCSSServerMJ smoke test"
 echo "========================================"
 
-echo "[1/4] Building MIT RCSSServerMJ runtime..."
+echo "[1/5] Building MIT RCSSServerMJ runtime..."
 docker build -f Dockerfile.rcssservermj -t "$IMAGE" .
 
-echo "[2/4] Starting headless server on ports 60000/60001..."
+echo "[2/5] Preflight: loading T1 MuJoCo model directly..."
+docker run --rm "$IMAGE" python - <<'PY'
+from rcsssmj.resources.spec_provider import ModelSpecProvider
+
+provider = ModelSpecProvider()
+spec = provider.load_robot_spec("T1")
+if spec is None:
+    raise SystemExit("FAIL: ModelSpecProvider could not locate T1")
+
+# These are assumptions used later by SoccerSimulation._add_player().
+if spec.body("torso") is None:
+    raise SystemExit("FAIL: T1 has no body named 'torso'")
+if spec.material("team") is None:
+    raise SystemExit("FAIL: T1 has no material named 'team'")
+
+print("PASS: T1 model loaded through ModelSpecProvider")
+print(f"torso={spec.body('torso').name!r}")
+print(f"team_material={spec.material('team').name!r}")
+PY
+
+echo "[3/5] Starting headless server on ports 60000/60001..."
 docker run -d --name "$CONTAINER" \
   -p 60000:60000 \
   -p 60001:60001 \
   "$IMAGE" >/dev/null
 
-echo "[3/4] Waiting passively for agent port 60000..."
+echo "[4/5] Waiting passively for agent port 60000..."
 ready=0
 for i in $(seq 1 60); do
   if docker exec "$CONTAINER" python - <<'PY'
@@ -72,11 +101,14 @@ if [[ "$ready" -ne 1 ]]; then
   exit 4
 fi
 
-echo "[4/4] Performing one real protocol handshake..."
+echo "[5/5] Performing one real protocol handshake..."
 set +e
 python3 scripts/rcssservermj_smoke_client.py --host 127.0.0.1 --port 60000
 client_rc=$?
 set -e
+
+# Let the server flush its file logger before collecting diagnostics.
+sleep 1
 
 if [[ "$client_rc" -ne 0 ]]; then
   echo "FAIL: protocol handshake returned exit code ${client_rc}"
