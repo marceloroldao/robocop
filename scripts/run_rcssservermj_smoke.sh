@@ -14,14 +14,14 @@ cleanup() {
 show_logs() {
   echo
   echo "================ DOCKER LOG ================"
-  docker logs --tail 160 "$CONTAINER" 2>&1 || true
+  docker logs --tail 240 "$CONTAINER" 2>&1 || true
   echo "============= INTERNAL DEBUG LOG ==========="
   docker exec "$CONTAINER" sh -lc '
-    for f in /console.log /opt/rcssservermj/console.log /workspace/console.log; do
-      if [ -f "$f" ]; then
-        echo "--- $f ---"
-        tail -n 240 "$f"
-      fi
+    echo "cwd=$(readlink /proc/1/cwd 2>/dev/null || true)"
+    echo "--- discovered console.log files ---"
+    find / -name console.log -type f -print 2>/dev/null | while read -r f; do
+      echo "--- $f ---"
+      tail -n 300 "$f" || true
     done
   ' 2>&1 || true
   echo "============================================"
@@ -37,24 +37,31 @@ echo "========================================"
 echo "[1/5] Building MIT RCSSServerMJ runtime..."
 docker build -f Dockerfile.rcssservermj -t "$IMAGE" .
 
-echo "[2/5] Preflight: loading T1 MuJoCo model directly..."
-docker run --rm "$IMAGE" python - <<'PY'
+echo "[2/5] Preflight: parser + T1 model + MuJoCo compile..."
+# -i is mandatory here: without it Docker does not receive this heredoc on stdin.
+docker run --rm -i "$IMAGE" python - <<'PY'
+from rcsssmj.games.soccer.server.soccer_action_parser import SoccerActionParser
 from rcsssmj.resources.spec_provider import ModelSpecProvider
+
+raw = b"(init T1 RoboCOP 1)"
+req = SoccerActionParser().parse_init(raw)
+if req is None:
+    raise SystemExit("FAIL: upstream parser rejected canonical init frame")
+print(f"PASS: parser model={req.model_name!r} team={req.team_name!r} player={req.player_no}")
 
 provider = ModelSpecProvider()
 spec = provider.load_robot_spec("T1")
 if spec is None:
     raise SystemExit("FAIL: ModelSpecProvider could not locate T1")
-
-# These are assumptions used later by SoccerSimulation._add_player().
 if spec.body("torso") is None:
     raise SystemExit("FAIL: T1 has no body named 'torso'")
 if spec.material("team") is None:
     raise SystemExit("FAIL: T1 has no material named 'team'")
 
-print("PASS: T1 model loaded through ModelSpecProvider")
-print(f"torso={spec.body('torso').name!r}")
-print(f"team_material={spec.material('team').name!r}")
+# Compile the standalone robot too; this catches XML/assets/schema failures.
+model = spec.compile()
+print("PASS: T1 model loaded and compiled")
+print(f"nbody={model.nbody} njnt={model.njnt} nu={model.nu}")
 PY
 
 echo "[3/5] Starting headless server on ports 60000/60001..."
@@ -66,8 +73,7 @@ docker run -d --name "$CONTAINER" \
 echo "[4/5] Waiting passively for agent port 60000..."
 ready=0
 for i in $(seq 1 60); do
-  if docker exec "$CONTAINER" python - <<'PY'
-import sys
+  if docker exec -i "$CONTAINER" python - <<'PY'
 port = 60000
 for path in ("/proc/net/tcp", "/proc/net/tcp6"):
     try:
@@ -75,9 +81,8 @@ for path in ("/proc/net/tcp", "/proc/net/tcp6"):
             next(f, None)
             for line in f:
                 cols = line.split()
-                if len(cols) >= 4 and cols[3] == "0A":
-                    if int(cols[1].rsplit(":", 1)[1], 16) == port:
-                        raise SystemExit(0)
+                if len(cols) >= 4 and cols[3] == "0A" and int(cols[1].rsplit(":", 1)[1], 16) == port:
+                    raise SystemExit(0)
     except OSError:
         pass
 raise SystemExit(1)
@@ -106,8 +111,6 @@ set +e
 python3 scripts/rcssservermj_smoke_client.py --host 127.0.0.1 --port 60000
 client_rc=$?
 set -e
-
-# Let the server flush its file logger before collecting diagnostics.
 sleep 1
 
 if [[ "$client_rc" -ne 0 ]]; then
