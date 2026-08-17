@@ -26,4 +26,4 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 EXPOSE 60000 60001
 
-CMD ["rcssservermj", "--host", "0.0.0.0", "--aport", "60000", "--mport", "60001"]
+CMD ["rcssservermj", "--host", "0.0.0.0", "--aport", "60000", "--mport", "60001", "--no-render"]
