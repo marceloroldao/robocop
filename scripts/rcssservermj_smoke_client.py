@@ -9,24 +9,17 @@ def send_framed(sock: socket.socket, payload: bytes) -> None:
     sock.sendall(len(payload).to_bytes(4, byteorder="big", signed=False) + payload)
 
 
-def recv_exact(sock: socket.socket, size: int) -> bytes:
-    chunks: list[bytes] = []
-    remaining = size
-    while remaining:
-        chunk = sock.recv(remaining)
-        if not chunk:
-            raise ConnectionError("server closed the connection")
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
-
-
 def receive_framed(sock: socket.socket) -> bytes:
-    header = recv_exact(sock, 4)
+    header = bytearray(4)
+    if sock.recv_into(header, nbytes=4, flags=socket.MSG_WAITALL) != 4:
+        raise ConnectionResetError("server closed before frame header")
     size = int.from_bytes(header, byteorder="big", signed=False)
     if size <= 0 or size > 10_000_000:
         raise ValueError(f"invalid RCSSServerMJ frame size: {size}")
-    return recv_exact(sock, size)
+    payload = bytearray(size)
+    if sock.recv_into(payload, nbytes=size, flags=socket.MSG_WAITALL) != size:
+        raise ConnectionResetError("server closed before complete perception frame")
+    return bytes(payload)
 
 
 def main() -> int:
@@ -34,23 +27,35 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=60000)
     parser.add_argument("--timeout", type=float, default=10.0)
+    parser.add_argument("--model", default="T1")
+    parser.add_argument("--team", default="RoboCOP")
+    parser.add_argument("--player", default="1")
     args = parser.parse_args()
 
-    init = b"(init T1 RoboCOP 1)"
-    with socket.create_connection((args.host, args.port), timeout=args.timeout) as sock:
-        sock.settimeout(args.timeout)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        send_framed(sock, init)
-        reply = receive_framed(sock)
+    # Keep this byte-for-byte equivalent to the upstream RCSSServerMJ minimal
+    # client protocol: (init <model> <team> <player_no>), 4-byte BE framing.
+    init = f"(init {args.model} {args.team} {args.player})".encode()
+    print(f"INIT: {init.decode()}")
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(args.timeout)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.connect((args.host, args.port))
+            send_framed(sock, init)
+            reply = receive_framed(sock)
+    except Exception as exc:
+        print(f"FAIL: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
 
     text = reply.decode("utf-8", errors="replace")
     if not text.strip():
         print("FAIL: RCSSServerMJ returned an empty perception frame", file=sys.stderr)
-        return 2
+        return 3
 
-    print("PASS: RCSSServerMJ accepted a T1 agent and returned a perception frame")
+    print("PASS: RCSSServerMJ accepted the agent and returned a perception frame")
     print(f"frame_bytes={len(reply)}")
-    print(f"frame_prefix={text[:180]!r}")
+    print(f"frame_prefix={text[:300]!r}")
     return 0
 
 
