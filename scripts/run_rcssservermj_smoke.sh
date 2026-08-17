@@ -10,9 +10,16 @@ CONTAINER="robocop-rcssservermj-smoke"
 cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 }
-trap cleanup EXIT
+
+show_logs() {
+  echo
+  echo "================ SERVER LOG ================"
+  docker logs --tail 120 "$CONTAINER" 2>&1 || true
+  echo "============================================"
+}
 
 cleanup
+trap cleanup EXIT
 
 echo "========================================"
 echo "RoboCOP — RCSSServerMJ smoke test"
@@ -21,7 +28,7 @@ echo "========================================"
 echo "[1/4] Building MIT RCSSServerMJ runtime..."
 docker build -f Dockerfile.rcssservermj -t "$IMAGE" .
 
-echo "[2/4] Starting server on ports 60000/60001..."
+echo "[2/4] Starting headless server on ports 60000/60001..."
 docker run -d --name "$CONTAINER" \
   -p 60000:60000 \
   -p 60001:60001 \
@@ -53,7 +60,7 @@ PY
   fi
   if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
     echo "FAIL: server container exited before opening port 60000"
-    docker logs "$CONTAINER" || true
+    show_logs
     exit 3
   fi
   sleep 1
@@ -61,16 +68,23 @@ done
 
 if [[ "$ready" -ne 1 ]]; then
   echo "FAIL: RCSSServerMJ did not open port 60000 within 60s"
-  docker logs "$CONTAINER" || true
+  show_logs
   exit 4
 fi
 
 echo "[4/4] Performing one real protocol handshake..."
+set +e
 python3 scripts/rcssservermj_smoke_client.py --host 127.0.0.1 --port 60000
+client_rc=$?
+set -e
 
-echo
-echo "Server log tail:"
-docker logs --tail 30 "$CONTAINER" || true
+if [[ "$client_rc" -ne 0 ]]; then
+  echo "FAIL: protocol handshake returned exit code ${client_rc}"
+  show_logs
+  exit "$client_rc"
+fi
+
+show_logs
 
 echo
 echo "PASS: RCSSServerMJ smoke validation completed."
