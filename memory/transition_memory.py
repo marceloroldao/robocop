@@ -59,8 +59,8 @@ def stability_score(state: BalanceState, target_height: float = 1.0) -> float:
     """Dimensionless balance score; larger is more stable.
 
     It intentionally depends on generic body invariants rather than on any
-    BahiaRT implementation detail. Coefficients are conservative defaults and
-    can later be calibrated against the chosen MuJoCo robot.
+    BahiaRT implementation detail. ``target_height`` is explicit because robot
+    models have different nominal standing heights.
     """
 
     height_error = abs(state.height - target_height)
@@ -91,11 +91,15 @@ class ResolutiveTransitionMemory:
         self,
         *,
         min_gain: float = 0.01,
+        target_height: float = 1.0,
         z1_quantization: Iterable[float] = (0.05, 0.08, 0.08, 0.15, 0.10, 0.05),
         distance_scale: Iterable[float] = (0.08, 0.15, 0.15, 0.30, 0.20, 0.10),
         max_records: int = 20_000,
     ) -> None:
         self.min_gain = float(min_gain)
+        self.target_height = float(target_height)
+        if not np.isfinite(self.target_height):
+            raise ValueError("target_height must be finite")
         self.z1_quantization = np.asarray(tuple(z1_quantization), dtype=np.float64)
         self.distance_scale = np.asarray(tuple(distance_scale), dtype=np.float64)
         if self.z1_quantization.shape != (6,) or np.any(self.z1_quantization <= 0):
@@ -138,7 +142,9 @@ class ResolutiveTransitionMemory:
         if action_array.size == 0 or not np.all(np.isfinite(action_array)):
             raise ValueError("action must be a finite non-empty vector")
 
-        gain = stability_score(after) - stability_score(before)
+        gain = stability_score(after, self.target_height) - stability_score(
+            before, self.target_height
+        )
         if not np.isfinite(gain) or gain < self.min_gain:
             return False
 
@@ -188,7 +194,6 @@ class ResolutiveTransitionMemory:
             if z2_match:
                 distance *= 0.55
 
-            # Prefer both geometric proximity and historically larger recovery.
             objective = distance / (1.0 + max(record.gain, 0.0))
             if best is None or objective < best[0]:
                 best = (objective, record, z1_match, z2_match)
@@ -222,11 +227,18 @@ class ResolutiveTransitionMemory:
 
     def stats(self) -> dict[str, float | int]:
         if not self._records:
-            return {"records": 0, "mean_gain": 0.0, "z1_regions": 0, "z2_patterns": 0}
+            return {
+                "records": 0,
+                "mean_gain": 0.0,
+                "z1_regions": 0,
+                "z2_patterns": 0,
+                "target_height": self.target_height,
+            }
         gains = np.asarray([r.gain for r in self._records], dtype=np.float64)
         return {
             "records": len(self._records),
             "mean_gain": float(gains.mean()),
             "z1_regions": len({r.z1 for r in self._records}),
             "z2_patterns": len({r.z2 for r in self._records}),
+            "target_height": self.target_height,
         }
