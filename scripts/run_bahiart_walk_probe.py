@@ -74,10 +74,11 @@ def main() -> None:
     recovery_cycles = 0
     falls = 0
     episode_lengths: list[int] = []
+    stop_reason = "MAX_WALK_CYCLES"
 
     def walk_probe_decision():
         nonlocal sim_cycle, walk_cycle, episode, episode_walk_cycle
-        nonlocal recovering, recovery_cycles, falls
+        nonlocal recovering, recovery_cycles, falls, stop_reason
 
         sim_cycle += 1
         fallen = bool(agent.world.is_fallen())
@@ -94,12 +95,15 @@ def main() -> None:
                 episode_walk_cycle = 0
                 print(f"[RoboCOP-WALK] recovered -> episode={episode} sim_cycle={sim_cycle}")
             elif recovery_cycles >= args.max_recovery_cycles:
-                raise RuntimeError("GetUp recovery exceeded --max-recovery-cycles")
+                stop_reason = "RECOVERY_TIMEOUT"
+                print(
+                    f"[RoboCOP-WALK] RECOVERY_TIMEOUT episode={episode} "
+                    f"recovery_cycles={recovery_cycles} walk_total={walk_cycle}"
+                )
+                raise KeyboardInterrupt
             return
 
         if fallen:
-            # Close the last walking transition as terminal, then sever temporal
-            # continuity before GetUp so recovery actions never enter walk memory.
             bridge.before_decision(agent)
             bridge.reset_temporal_context()
             falls += 1
@@ -172,6 +176,7 @@ def main() -> None:
             )
         if walk_cycle >= args.max_walk_cycles:
             episode_lengths.append(episode_walk_cycle)
+            stop_reason = "MAX_WALK_CYCLES"
             raise KeyboardInterrupt
 
     agent.decision_maker.update_current_behavior = walk_probe_decision
@@ -186,9 +191,9 @@ def main() -> None:
         mean_len = float(np.mean(episode_lengths)) if episode_lengths else float(episode_walk_cycle)
         best_len = max(episode_lengths) if episode_lengths else episode_walk_cycle
         print(
-            f"[RoboCOP-WALK] completed walk_cycles={walk_cycle} episodes={episode} "
-            f"falls={falls} mean_episode={mean_len:.1f} best_episode={best_len} "
-            f"records={memory.size}"
+            f"[RoboCOP-WALK] completed reason={stop_reason} walk_cycles={walk_cycle} "
+            f"episodes={episode} falls={falls} mean_episode={mean_len:.1f} "
+            f"best_episode={best_len} records={memory.size}"
         )
 
 
