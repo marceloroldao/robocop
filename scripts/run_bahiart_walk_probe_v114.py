@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from robocop.integrations.bahiart_full_body_v114 import full_body_sensor_state
 
-HERE = Path(__file__).resolve().parent
 BASE_PATH = HERE / "run_bahiart_walk_probe.py"
 
 spec = importlib.util.spec_from_file_location("robocop_bahiart_walk_probe_base", BASE_PATH)
