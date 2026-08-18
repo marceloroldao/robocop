@@ -55,6 +55,21 @@ class BahiaRTPassiveBridge:
         except (TypeError, ValueError):
             return None
 
+    def reset_temporal_context(self) -> None:
+        """Drop pending transition state without clearing learned memory.
+
+        Useful at episode boundaries (fall/get-up/reset), where connecting the
+        last pre-fall action to the first post-recovery state would create a
+        synthetic transition that never occurred under continuous walking.
+        """
+
+        self._pending_state = None
+        self._pending_action = None
+        self._last_time = None
+        self._last_height = None
+        self._current_state = None
+        self._current_recall = None
+
     def _state(self, agent) -> BalanceState:
         world = agent.world
         robot = agent.robot
