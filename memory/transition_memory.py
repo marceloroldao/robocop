@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Optional
 
 import numpy as np
@@ -77,13 +79,9 @@ def stability_score(state: BalanceState, target_height: float = 1.0) -> float:
 
 
 class ResolutiveTransitionMemory:
-    """Hierarchical memory of stabilizing transition prototypes.
+    """Hierarchical memory of stabilizing transition prototypes."""
 
-    Z1 = familiar body region.
-    Z2 = familiar body region plus matching transition direction.
-    Z3 = strongly confirmed recovery prototype for a rarer/critical state.
-    MISS = no sufficiently trustworthy experience; baseline should retain control.
-    """
+    SNAPSHOT_VERSION = 1
 
     def __init__(
         self,
@@ -127,6 +125,87 @@ class ResolutiveTransitionMemory:
     def size(self) -> int:
         return len(self._records)
 
+    @staticmethod
+    def _state_to_list(state: BalanceState) -> list[float]:
+        return [float(x) for x in state.vector()]
+
+    @staticmethod
+    def _state_from_list(values: Iterable[float]) -> BalanceState:
+        arr = [float(x) for x in values]
+        if len(arr) != 6:
+            raise ValueError("snapshot balance state must contain six values")
+        return BalanceState(*arr)
+
+    def snapshot(self) -> dict:
+        return {
+            "version": self.SNAPSHOT_VERSION,
+            "config": {
+                "min_gain": self.min_gain,
+                "target_height": self.target_height,
+                "z1_quantization": self.z1_quantization.tolist(),
+                "distance_scale": self.distance_scale.tolist(),
+                "max_records": self.max_records,
+                "merge_state_distance": self.merge_state_distance,
+                "merge_action_distance": self.merge_action_distance,
+                "min_confirmations": self.min_confirmations,
+                "z1_max_distance": self.z1_max_distance,
+                "z2_max_distance": self.z2_max_distance,
+                "z3_max_distance": self.z3_max_distance,
+            },
+            "counters": {
+                "observations_admitted": self._observations_admitted,
+                "observations_merged": self._observations_merged,
+            },
+            "records": [
+                {
+                    "before": self._state_to_list(r.before),
+                    "action": [float(x) for x in r.action],
+                    "after": self._state_to_list(r.after),
+                    "gain": float(r.gain),
+                    "z1": list(r.z1),
+                    "z2": list(r.z2),
+                    "confirmations": int(r.confirmations),
+                    "gain_sum": float(r.gain_sum),
+                }
+                for r in self._records
+            ],
+        }
+
+    def save_json(self, path: str | Path) -> None:
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_suffix(destination.suffix + ".tmp")
+        temporary.write_text(json.dumps(self.snapshot(), separators=(",", ":")), encoding="utf-8")
+        temporary.replace(destination)
+
+    @classmethod
+    def from_snapshot(cls, payload: dict) -> "ResolutiveTransitionMemory":
+        if int(payload.get("version", -1)) != cls.SNAPSHOT_VERSION:
+            raise ValueError("unsupported transition-memory snapshot version")
+        memory = cls(**payload["config"])
+        counters = payload.get("counters", {})
+        memory._observations_admitted = int(counters.get("observations_admitted", 0))
+        memory._observations_merged = int(counters.get("observations_merged", 0))
+        for item in payload.get("records", []):
+            memory._records.append(
+                TransitionPrototype(
+                    before=cls._state_from_list(item["before"]),
+                    action=np.asarray(item["action"], dtype=np.float64),
+                    after=cls._state_from_list(item["after"]),
+                    gain=float(item["gain"]),
+                    z1=tuple(int(x) for x in item["z1"]),
+                    z2=tuple(int(x) for x in item["z2"]),
+                    confirmations=int(item.get("confirmations", 1)),
+                    gain_sum=float(item.get("gain_sum", item["gain"])),
+                )
+            )
+        return memory
+
+    @classmethod
+    def load_json(cls, path: str | Path) -> "ResolutiveTransitionMemory":
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        return cls.from_snapshot(payload)
+
     def _z1(self, state: BalanceState) -> tuple[int, ...]:
         q = np.rint(state.vector() / self.z1_quantization).astype(np.int64)
         return tuple(int(x) for x in q)
@@ -155,29 +234,18 @@ class ResolutiveTransitionMemory:
         v = av + (bv - av) / float(n)
         return BalanceState(*[float(x) for x in v])
 
-    def observe(
-        self,
-        before: BalanceState,
-        action: Iterable[float] | np.ndarray,
-        after: BalanceState,
-        *,
-        terminal: bool = False,
-    ) -> bool:
+    def observe(self, before: BalanceState, action: Iterable[float] | np.ndarray, after: BalanceState, *, terminal: bool = False) -> bool:
         if terminal:
             return False
-
         action_array = np.asarray(action, dtype=np.float64).reshape(-1).copy()
         if action_array.size == 0 or not np.all(np.isfinite(action_array)):
             raise ValueError("action must be a finite non-empty vector")
-
         gain = stability_score(after, self.target_height) - stability_score(before, self.target_height)
         if not np.isfinite(gain) or gain < self.min_gain:
             return False
-
         z1 = self._z1(before)
         z2 = self._z2(before, after)
         self._observations_admitted += 1
-
         best: Optional[tuple[float, int]] = None
         for i, record in enumerate(self._records):
             if record.z1 != z1 or record.z2 != z2:
@@ -191,7 +259,6 @@ class ResolutiveTransitionMemory:
             objective = sd + ad
             if best is None or objective < best[0]:
                 best = (objective, i)
-
         if best is not None:
             record = self._records[best[1]]
             n = record.confirmations + 1
@@ -203,35 +270,17 @@ class ResolutiveTransitionMemory:
             record.gain = max(record.gain, float(gain))
             self._observations_merged += 1
             return True
-
-        self._records.append(
-            TransitionPrototype(
-                before=before,
-                action=action_array,
-                after=after,
-                gain=float(gain),
-                z1=z1,
-                z2=z2,
-            )
-        )
+        self._records.append(TransitionPrototype(before=before, action=action_array, after=after, gain=float(gain), z1=z1, z2=z2))
         if len(self._records) > self.max_records:
             self._records.sort(key=lambda r: (r.confirmations, r.mean_gain))
             del self._records[: len(self._records) - self.max_records]
         return True
 
-    def recall(
-        self,
-        state: BalanceState,
-        *,
-        recent_state: Optional[BalanceState] = None,
-        min_confidence: float = 0.0,
-    ) -> Optional[Recall]:
+    def recall(self, state: BalanceState, *, recent_state: Optional[BalanceState] = None, min_confidence: float = 0.0) -> Optional[Recall]:
         if not self._records:
             return None
-
         query_z1 = self._z1(state)
         query_z2 = self._z2(recent_state, state) if recent_state is not None else None
-
         candidates: list[tuple[float, TransitionPrototype, bool, bool]] = []
         for record in self._records:
             distance = self._state_distance(record.before, state)
@@ -244,13 +293,10 @@ class ResolutiveTransitionMemory:
             if z2_match:
                 objective *= 0.62
             candidates.append((float(objective), record, z1_match, z2_match))
-
         _, record, z1_match, z2_match = min(candidates, key=lambda x: x[0])
         raw_distance = self._state_distance(record.before, state)
-
         if record.confirmations < self.min_confirmations:
             return None
-
         if z1_match and raw_distance <= self.z1_max_distance:
             layer = "Z1"
         elif z2_match and raw_distance <= self.z2_max_distance:
@@ -259,27 +305,15 @@ class ResolutiveTransitionMemory:
             layer = "Z3"
         else:
             return None
-
         confirmation_term = min(1.0, np.log1p(record.confirmations) / np.log(21.0))
         confidence = float(np.exp(-raw_distance) * (0.70 + 0.30 * confirmation_term))
         if z1_match:
             confidence = min(1.0, confidence + 0.05)
         if z2_match:
             confidence = min(1.0, confidence + 0.08)
-
         if confidence < min_confidence:
             return None
-
-        return Recall(
-            action=record.action.copy(),
-            confidence=confidence,
-            gain=record.mean_gain,
-            distance=raw_distance,
-            z1_match=z1_match,
-            z2_match=z2_match,
-            layer=layer,
-            confirmations=record.confirmations,
-        )
+        return Recall(action=record.action.copy(), confidence=confidence, gain=record.mean_gain, distance=raw_distance, z1_match=z1_match, z2_match=z2_match, layer=layer, confirmations=record.confirmations)
 
     def stats(self) -> dict[str, float | int]:
         if not self._records:
