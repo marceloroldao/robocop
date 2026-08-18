@@ -32,6 +32,57 @@ def state_dict(state):
     }
 
 
+def full_body_sensor_state(agent) -> dict:
+    """Capture raw BahiaRT body sensors without mixing in motor commands.
+
+    Stable order is explicit so later V11 memories can compare sensor-by-sensor.
+    Joint positions/speeds come from perceived HJ sensors; target_position remains
+    in baseline_action and is deliberately excluded from this state vector.
+    """
+
+    robot = agent.robot
+    world = agent.world
+    motors = tuple(robot.ROBOT_MOTORS)
+
+    global_position = np.asarray(world.global_position, dtype=float).reshape(-1)[:3]
+    quat = np.asarray(robot.global_orientation_quat, dtype=float).reshape(-1)[:4]
+    euler = np.asarray(robot.global_orientation_euler, dtype=float).reshape(-1)[:3]
+    gyro = np.asarray(robot.gyroscope, dtype=float).reshape(-1)[:3]
+    accel = np.asarray(robot.accelerometer, dtype=float).reshape(-1)[:3]
+    joint_position = np.asarray([float(robot.motor_positions.get(m, 0.0)) for m in motors], dtype=float)
+    joint_speed = np.asarray([float(robot.motor_speeds.get(m, 0.0)) for m in motors], dtype=float)
+
+    parts = [global_position, quat, euler, gyro, accel, joint_position, joint_speed]
+    vector = np.concatenate(parts).astype(float)
+    names = (
+        ["global_x", "global_y", "global_z"]
+        + ["quat_x", "quat_y", "quat_z", "quat_w"]
+        + ["roll_deg", "pitch_deg", "yaw_deg"]
+        + ["gyro_x_deg_s", "gyro_y_deg_s", "gyro_z_deg_s"]
+        + ["accel_x_m_s2", "accel_y_m_s2", "accel_z_m_s2"]
+        + [f"joint_pos_deg:{m}" for m in motors]
+        + [f"joint_speed_deg_s:{m}" for m in motors]
+    )
+    if len(names) != int(vector.size):
+        raise RuntimeError("V11 sensor schema/vector length mismatch")
+
+    return {
+        "version": "v11-full-body-1",
+        "names": names,
+        "vector": vector.tolist(),
+        "groups": {
+            "global_position": global_position.tolist(),
+            "orientation_quat": quat.tolist(),
+            "orientation_euler_deg": euler.tolist(),
+            "gyroscope_deg_s": gyro.tolist(),
+            "accelerometer_m_s2": accel.tolist(),
+            "joint_position_deg": joint_position.tolist(),
+            "joint_speed_deg_s": joint_speed.tolist(),
+        },
+        "motor_names": list(motors),
+    }
+
+
 def velocity_for_cycle(cycle: int, block: int) -> np.ndarray:
     phase = (cycle // block) % 4
     commands = (
@@ -157,6 +208,7 @@ def main() -> None:
             "command_velocity": velocity.tolist(),
             "admitted_previous_transition": admitted,
             "state": state_dict(current) if current is not None else None,
+            "full_body_state": full_body_sensor_state(agent),
             "baseline_action": np.asarray(action, dtype=float).tolist(),
             "recall": None if recall is None else {
                 "action": recall.action.tolist(),
@@ -179,6 +231,8 @@ def main() -> None:
         with args.trace.open("a", encoding="utf-8") as fp:
             fp.write(json.dumps(row, separators=(",", ":")) + "\n")
 
+        if walk_cycle == 1:
+            print(f"[RoboCOP-WALK] V11 full-body sensor channels={len(row['full_body_state']['vector'])}")
         if walk_cycle % 100 == 0:
             print(
                 f"[RoboCOP-WALK] run={args.run_id} walk={walk_cycle} episode={episode} "
@@ -194,6 +248,7 @@ def main() -> None:
 
     print("[RoboCOP-WALK] persistent BahiaRT Walk probe enabled")
     print("[RoboCOP-WALK] BahiaRT Walk network remains the only walking joint-action generator")
+    print("[RoboCOP-WALK] V11 raw full-body recorder enabled")
     print(f"[RoboCOP-WALK] run_id={args.run_id} stop_on_fall={args.stop_on_fall}")
     print(f"[RoboCOP-WALK] trace: {args.trace}")
 
@@ -224,6 +279,7 @@ def main() -> None:
         "best_episode": int(best_len),
         "memory": final_stats,
         "bridge": bridge.stats().__dict__,
+        "v11_full_body": True,
     }
     if args.summary is not None:
         args.summary.parent.mkdir(parents=True, exist_ok=True)
