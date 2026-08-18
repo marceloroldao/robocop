@@ -44,7 +44,7 @@ def velocity_for_cycle(cycle: int, block: int) -> np.ndarray:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Episodic BahiaRT Walk probe with passive RoboCOP transition recording.")
+    p = argparse.ArgumentParser(description="BahiaRT Walk probe with passive persistent RoboCOP transition memory.")
     p.add_argument("--team", default="RoboCOPWalkProbe")
     p.add_argument("--number", type=int, default=2)
     p.add_argument("--host", default="127.0.0.1")
@@ -56,13 +56,23 @@ def main() -> None:
     p.add_argument("--block", type=int, default=150, help="walking cycles per commanded velocity phase")
     p.add_argument("--max-walk-cycles", type=int, default=12000)
     p.add_argument("--max-recovery-cycles", type=int, default=2500)
+    p.add_argument("--stop-on-fall", action="store_true", help="finish run immediately at first fall; intended for multi-run orchestration")
+    p.add_argument("--run-id", type=int, default=1)
+    p.add_argument("--memory-in", type=Path)
+    p.add_argument("--memory-out", type=Path)
     p.add_argument("--trace", type=Path, default=ROOT / "results" / "bahiart_walk_probe_trace.jsonl")
+    p.add_argument("--summary", type=Path)
     args = p.parse_args()
 
     args.trace.parent.mkdir(parents=True, exist_ok=True)
     args.trace.write_text("", encoding="utf-8")
 
-    memory = ResolutiveTransitionMemory(min_gain=args.min_gain, target_height=args.target_height)
+    if args.memory_in is not None and args.memory_in.exists():
+        memory = ResolutiveTransitionMemory.load_json(args.memory_in)
+        print(f"[RoboCOP-WALK] loaded memory={args.memory_in} records={memory.size}")
+    else:
+        memory = ResolutiveTransitionMemory(min_gain=args.min_gain, target_height=args.target_height)
+
     bridge = BahiaRTPassiveBridge(memory, recall_confidence=args.recall_confidence)
     agent = Agent(team_name=args.team, number=args.number, host=args.host, port=args.port, field=args.field)
 
@@ -96,10 +106,7 @@ def main() -> None:
                 print(f"[RoboCOP-WALK] recovered -> episode={episode} sim_cycle={sim_cycle}")
             elif recovery_cycles >= args.max_recovery_cycles:
                 stop_reason = "RECOVERY_TIMEOUT"
-                print(
-                    f"[RoboCOP-WALK] RECOVERY_TIMEOUT episode={episode} "
-                    f"recovery_cycles={recovery_cycles} walk_total={walk_cycle}"
-                )
+                print(f"[RoboCOP-WALK] RECOVERY_TIMEOUT episode={episode} recovery_cycles={recovery_cycles} walk_total={walk_cycle}")
                 raise KeyboardInterrupt
             return
 
@@ -108,12 +115,15 @@ def main() -> None:
             bridge.reset_temporal_context()
             falls += 1
             episode_lengths.append(episode_walk_cycle)
+            print(
+                f"[RoboCOP-WALK] FALL run={args.run_id} episode={episode} "
+                f"walk_len={episode_walk_cycle} walk_total={walk_cycle} records={memory.size}"
+            )
+            if args.stop_on_fall:
+                stop_reason = "FALL"
+                raise KeyboardInterrupt
             recovering = True
             recovery_cycles = 0
-            print(
-                f"[RoboCOP-WALK] FALL episode={episode} walk_len={episode_walk_cycle} "
-                f"walk_total={walk_cycle} records={memory.size}"
-            )
             agent.skills_manager.execute("GetUp")
             agent.robot.commit_motor_targets_pd()
             return
@@ -137,6 +147,7 @@ def main() -> None:
         current = bridge._current_state
         stats = bridge.stats()
         row = {
+            "run_id": args.run_id,
             "sim_cycle": sim_cycle,
             "cycle": walk_cycle,
             "episode": episode,
@@ -170,9 +181,9 @@ def main() -> None:
 
         if walk_cycle % 100 == 0:
             print(
-                f"[RoboCOP-WALK] walk={walk_cycle} episode={episode} ep_cycle={episode_walk_cycle} "
-                f"records={memory.size} recalls={stats.recalls} falls={falls} "
-                f"cmd=({velocity[0]:+.2f},{velocity[1]:+.2f})"
+                f"[RoboCOP-WALK] run={args.run_id} walk={walk_cycle} episode={episode} "
+                f"ep_cycle={episode_walk_cycle} records={memory.size} recalls={stats.recalls} "
+                f"falls={falls} cmd=({velocity[0]:+.2f},{velocity[1]:+.2f})"
             )
         if walk_cycle >= args.max_walk_cycles:
             episode_lengths.append(episode_walk_cycle)
@@ -181,20 +192,47 @@ def main() -> None:
 
     agent.decision_maker.update_current_behavior = walk_probe_decision
 
-    print("[RoboCOP-WALK] episodic BahiaRT Walk probe enabled")
+    print("[RoboCOP-WALK] persistent BahiaRT Walk probe enabled")
     print("[RoboCOP-WALK] BahiaRT Walk network remains the only walking joint-action generator")
-    print("[RoboCOP-WALK] GetUp cycles are excluded from transition learning")
+    print(f"[RoboCOP-WALK] run_id={args.run_id} stop_on_fall={args.stop_on_fall}")
     print(f"[RoboCOP-WALK] trace: {args.trace}")
+
     try:
         agent.run()
     except KeyboardInterrupt:
-        mean_len = float(np.mean(episode_lengths)) if episode_lengths else float(episode_walk_cycle)
-        best_len = max(episode_lengths) if episode_lengths else episode_walk_cycle
-        print(
-            f"[RoboCOP-WALK] completed reason={stop_reason} walk_cycles={walk_cycle} "
-            f"episodes={episode} falls={falls} mean_episode={mean_len:.1f} "
-            f"best_episode={best_len} records={memory.size}"
-        )
+        pass
+    except OSError as exc:
+        if getattr(exc, "errno", None) != 9:
+            raise
+        print("[RoboCOP-WALK] ignored shutdown bad-file-descriptor after agent disconnect")
+    finally:
+        if args.memory_out is not None:
+            memory.save_json(args.memory_out)
+            print(f"[RoboCOP-WALK] saved memory={args.memory_out} records={memory.size}")
+
+    mean_len = float(np.mean(episode_lengths)) if episode_lengths else float(episode_walk_cycle)
+    best_len = max(episode_lengths) if episode_lengths else episode_walk_cycle
+    final_stats = memory.stats()
+    summary = {
+        "run_id": args.run_id,
+        "reason": stop_reason,
+        "walk_cycles": walk_cycle,
+        "sim_cycles": sim_cycle,
+        "falls": falls,
+        "episodes": episode,
+        "mean_episode": mean_len,
+        "best_episode": int(best_len),
+        "memory": final_stats,
+        "bridge": bridge.stats().__dict__,
+    }
+    if args.summary is not None:
+        args.summary.parent.mkdir(parents=True, exist_ok=True)
+        args.summary.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print(
+        f"[RoboCOP-WALK] completed run={args.run_id} reason={stop_reason} walk_cycles={walk_cycle} "
+        f"falls={falls} mean_episode={mean_len:.1f} best_episode={best_len} "
+        f"records={memory.size} confirmed={final_stats['confirmed_records']}"
+    )
 
 
 if __name__ == "__main__":
