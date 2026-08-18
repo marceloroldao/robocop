@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""V11.6 ablation: sensory-only vs body-only vs coupled, plus instantaneous coupled state.
-
-Uses the corrected V11.5 dataset. Scales are fit on training episodes only. Memory is
-frozen for holdout. This script intentionally reuses the indexed V11.1 memory so the
-only experimental variable is the address representation.
-"""
+"""V11.6 ablation: sensory-only vs body-only vs coupled, plus instantaneous coupled state."""
 from __future__ import annotations
 import argparse, json, sys, time
 from collections import defaultdict
@@ -34,7 +29,10 @@ def full(r):return np.asarray(r['full_body_state']['vector'],float)
 def windows(rows,c,h):
     for i in range(c-1,len(rows)-h):yield rows[i-c+1:i+1],rows[i+1:i+h+1]
 def classify(names):
-    body=np.asarray([n.startswith('joint_pos:') or n.startswith('joint_vel:') for n in names],bool)
+    # V11.4 recorder schema uses joint_pos_deg:* and joint_speed_deg_s:*.
+    # Keep compatibility with earlier experimental schemas as well.
+    prefixes=('joint_pos_deg:','joint_speed_deg_s:','joint_pos:','joint_vel:')
+    body=np.asarray([str(n).startswith(prefixes) for n in names],bool)
     return np.where(~body)[0],np.where(body)[0]
 def project(v,idx):return np.asarray(v,float)[idx]
 
@@ -63,8 +61,10 @@ def evaluate(label,eps,tr,te,idx,context,horizon,progress):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--trace',type=Path,required=True);p.add_argument('--train-fraction',type=float,default=.70);p.add_argument('--context',type=int,default=5);p.add_argument('--horizon',type=int,default=12);p.add_argument('--progress-every',type=int,default=500);a=p.parse_args()
     eps,names=load(a.trace);ids=list(eps);split=max(1,min(len(ids)-1,int(round(len(ids)*a.train_fraction))));tr,te=ids[:split],ids[split:];sidx,bidx=classify(names);allidx=np.arange(len(names))
-    if len(sidx)!=16 or len(bidx)!=46:raise SystemExit(f'expected 16 sensory + 46 body, got {len(sidx)} + {len(bidx)}')
-    # Verify body is dynamic before doing expensive work.
+    print(f'V11.6 schema: sensory={len(sidx)} body={len(bidx)}',flush=True)
+    if len(sidx)!=16 or len(bidx)!=46:
+        print('Schema names:',*names,sep='\n  ',flush=True)
+        raise SystemExit(f'expected 16 sensory + 46 body, got {len(sidx)} + {len(bidx)}')
     sample=np.asarray([full(r) for run in ids for r in eps[run]]);std=np.std(sample[:,bidx],axis=0)
     if np.count_nonzero(std>1e-8)<40:raise SystemExit('FAIL: corporal channels are not sufficiently dynamic')
     configs=[('S-only trajectory',sidx,a.context),('B-only trajectory',bidx,a.context),('SxB trajectory',allidx,a.context),('SxB instantaneous',allidx,1)]
