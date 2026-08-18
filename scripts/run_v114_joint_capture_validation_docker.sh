@@ -19,6 +19,7 @@ docker run -d --name "$SERVER" --network host robocop-rcssservermj:v114 >/dev/nu
 trap 'docker rm -f "$SERVER" >/dev/null 2>&1 || true' EXIT
 sleep 4
 
+rm -f "$TRACE"
 set +e
 docker run --rm --network host \
   -v "$ROOT:/workspace" -w /workspace \
@@ -29,6 +30,13 @@ docker run --rm --network host \
     --trace /workspace/results/v114_joint_capture_trace.jsonl
 RC=$?
 set -e
+
+if [[ ! -s "$TRACE" ]]; then
+  echo
+  echo "FAIL: V11.4 probe did not generate a non-empty trace."
+  echo "Agent exit code: $RC"
+  exit 1
+fi
 
 echo
 echo "--- validating captured corporal channels ---"
