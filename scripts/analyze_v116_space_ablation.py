@@ -29,34 +29,36 @@ def full(r):return np.asarray(r['full_body_state']['vector'],float)
 def windows(rows,c,h):
     for i in range(c-1,len(rows)-h):yield rows[i-c+1:i+1],rows[i+1:i+h+1]
 def classify(names):
-    # V11.4 recorder schema uses joint_pos_deg:* and joint_speed_deg_s:*.
-    # Keep compatibility with earlier experimental schemas as well.
     prefixes=('joint_pos_deg:','joint_speed_deg_s:','joint_pos:','joint_vel:')
     body=np.asarray([str(n).startswith(prefixes) for n in names],bool)
     return np.where(~body)[0],np.where(body)[0]
 def project(v,idx):return np.asarray(v,float)[idx]
 
-def evaluate(label,eps,tr,te,idx,context,horizon,progress):
-    t0=time.time(); m=IndexedFullBodyTrajectoryMemory(context=context)
+def evaluate(label,eps,tr,te,idx,address_context,label_context,horizon,progress):
+    t0=time.time(); m=IndexedFullBodyTrajectoryMemory(context=address_context)
     trainvec=[project(full(r),idx) for run in tr for r in eps[run]];m.fit_scales(trainvec)
     tw=cand=corr=0
     for run in tr:
-        for hist,fut in windows(eps[run],context,horizon):
+        for hist,fut in windows(eps[run],label_context,horizon):
             tw+=1; bh=[bal(x) for x in hist]; old=stability_score(bh[0],1.); now=stability_score(bh[-1],1.)
             if old-now<.01:continue
             cand+=1; scores=np.asarray([stability_score(bal(x),1.) for x in fut]);j=int(np.argmax(scores));gain=float(scores[j]-now)
             if gain<.03:continue
-            corr+=1;m.observe([project(full(x),idx) for x in hist],project(full(fut[j]),idx),gain)
+            corr+=1
+            addr_hist=hist[-address_context:]
+            m.observe([project(full(x),idx) for x in addr_hist],project(full(fut[j]),idx),gain)
             if progress and corr%progress==0:print(f'[{label}] train corrective={corr} proto={m.size} elapsed={time.time()-t0:.1f}s',flush=True)
     frozen=m.stats().copy(); hold=rec=0;direction=[];rms=[];mx=[];conf=[];by=defaultdict(lambda:[0,0])
     for run in te:
-        for hist,fut in windows(eps[run],context,horizon):
-            hold+=1;by[run][0]+=1;rr=m.recall([project(full(x),idx) for x in hist])
+        for hist,fut in windows(eps[run],label_context,horizon):
+            hold+=1;by[run][0]+=1
+            addr_hist=hist[-address_context:]
+            rr=m.recall([project(full(x),idx) for x in addr_hist])
             if rr is None:continue
             rec+=1;by[run][1]+=1;conf.append(rr.confidence);rms.append(rr.rms_distance);mx.append(rr.max_channel_error)
             cur=project(full(hist[-1]),idx);scores=np.asarray([stability_score(bal(x),1.) for x in fut]);j=int(np.argmax(scores));true=project(full(fut[j]),idx)
             x=(rr.target_state-cur)/m.scales;y=(true-cur)/m.scales;nx=np.linalg.norm(x);ny=np.linalg.norm(y);direction.append(float(np.dot(x,y)/(nx*ny)) if nx>1e-12 and ny>1e-12 else 0.)
-    return dict(label=label,context=context,channels=len(idx),address_dims=len(idx)*context,training_windows=tw,candidate_windows=cand,corrective_windows=corr,prototypes=frozen['records'],confirmed=frozen['confirmed_records'],holdout_windows=hold,recalls=rec,coverage=rec/max(1,hold),direction_mean=float(np.mean(direction)) if direction else 0.,aligned=sum(x>=.70 for x in direction),aligned_rate=sum(x>=.70 for x in direction)/max(1,len(direction)),rms=float(np.mean(rms)) if rms else 0.,maxerr=float(np.mean(mx)) if mx else 0.,confidence=float(np.mean(conf)) if conf else 0.,frozen=(frozen==m.stats()),elapsed=time.time()-t0,by=dict(by),index=m.index_stats())
+    return dict(label=label,context=address_context,channels=len(idx),address_dims=len(idx)*address_context,training_windows=tw,candidate_windows=cand,corrective_windows=corr,prototypes=frozen['records'],confirmed=frozen['confirmed_records'],holdout_windows=hold,recalls=rec,coverage=rec/max(1,hold),direction_mean=float(np.mean(direction)) if direction else 0.,aligned=sum(x>=.70 for x in direction),aligned_rate=sum(x>=.70 for x in direction)/max(1,len(direction)),rms=float(np.mean(rms)) if rms else 0.,maxerr=float(np.mean(mx)) if mx else 0.,confidence=float(np.mean(conf)) if conf else 0.,frozen=(frozen==m.stats()),elapsed=time.time()-t0,by=dict(by),index=m.index_stats())
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--trace',type=Path,required=True);p.add_argument('--train-fraction',type=float,default=.70);p.add_argument('--context',type=int,default=5);p.add_argument('--horizon',type=int,default=12);p.add_argument('--progress-every',type=int,default=500);a=p.parse_args()
@@ -67,11 +69,13 @@ def main():
         raise SystemExit(f'expected 16 sensory + 46 body, got {len(sidx)} + {len(bidx)}')
     sample=np.asarray([full(r) for run in ids for r in eps[run]]);std=np.std(sample[:,bidx],axis=0)
     if np.count_nonzero(std>1e-8)<40:raise SystemExit('FAIL: corporal channels are not sufficiently dynamic')
+    label_context=a.context
     configs=[('S-only trajectory',sidx,a.context),('B-only trajectory',bidx,a.context),('SxB trajectory',allidx,a.context),('SxB instantaneous',allidx,1)]
     results=[]
-    print(f'V11.6 dataset episodes={len(ids)} train={tr} holdout={te} rows={len(sample)}',flush=True)
-    for label,idx,c in configs:
-        print(f'\n=== {label}: channels={len(idx)} context={c} ===',flush=True);results.append(evaluate(label,eps,tr,te,idx,c,a.horizon,a.progress_every))
+    print(f'V11.6 dataset episodes={len(ids)} train={tr} holdout={te} rows={len(sample)} label_context={label_context}',flush=True)
+    for label,idx,address_context in configs:
+        print(f'\n=== {label}: channels={len(idx)} address_context={address_context} label_context={label_context} ===',flush=True)
+        results.append(evaluate(label,eps,tr,te,idx,address_context,label_context,a.horizon,a.progress_every))
     print('\n'+'='*112);print('RoboCOP — V11.6 SPACE / TEMPORAL ABLATION');print('='*112)
     print(f"{'variant':24s} {'dims':>6s} {'proto':>7s} {'recall':>12s} {'cos':>8s} {'>=.70':>10s} {'rms':>8s} {'maxerr':>8s} {'sec':>8s}")
     for r in results:
