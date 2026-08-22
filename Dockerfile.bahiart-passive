@@ -1,0 +1,24 @@
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Runtime subset of the external BahiaRT pyproject. The external source itself
+# is NOT copied into this image; it is mounted from .external at runtime.
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install \
+        "numpy>=2.3.3,<3.0.0" \
+        "scipy>=1.16.1,<2.0.0" \
+        "pyyaml>=6.0.2,<7.0.0" \
+        "onnxruntime>=1.23.0,<2.0.0" \
+        "onnx>=1.19.0,<2.0.0"
+
+WORKDIR /workspace
+
+CMD ["python", "scripts/run_bahiart_passive.py", "--host", "127.0.0.1", "--port", "60000"]
